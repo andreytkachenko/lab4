@@ -111,6 +111,8 @@ class MnistConvModel:
 
 
     def forward(self, X):
+        self.X = X
+        
         self.o_conv = self.convolution_forward(X)
         
         self.o_relu = self.relu_forward(self.o_conv).reshape(len(X), -1)
@@ -132,15 +134,13 @@ class MnistConvModel:
         self.e_conv = self.convolution_backward(self.e_relu)
 
     def calc_gradients(self):
-        scaler = 1 / len(self.o_relu)
+        scaler = 1 / len(self.X)
 
         self.dW_linear = np.dot(self.o_relu.T, self.e_sigmoid) * scaler
-        self.db_linear = np.mean(self.o_linear, axis=0) * scaler
         self.dW_conv = # TODO 
 
     def update(self):
         self.W_linear -= self.dW_linear * self.lr
-        self.db_linear -= self.db_linear * self.lr
         self.W_conv -= self.dW_conv * self.lr
 
 def mse(o, y):
@@ -161,7 +161,7 @@ def train(model, X, y, epochs=100, batch_size=100, validation=None):
     np.put_along_axis(t, y.reshape((-1, 1)), 1.0, axis=1)
 
     for epoch in range(0, epochs):
-        print("Epoc ", epoch + 1)
+        print("Epoch ", epoch + 1)
 
         for index, (bX, bt) in enumerate(zip(np.split(X, batch_count), np.split(t, batch_count))):
             res = model.forward(bX)
@@ -171,7 +171,7 @@ def train(model, X, y, epochs=100, batch_size=100, validation=None):
             model.calc_gradients()
             model.update()
 
-            if index % 100:
+            if index % 100 == 0:
                 print("  Loss: ", mse(res, bt))
 
         if validation is not None:
@@ -183,5 +183,5 @@ if __name__ == "__main__":
     X = X.reshape((-1, 1, 28, 28))
     Xt = Xt.reshape((-1, 1, 28, 28))
 
-    train(model, X, y, validation=(Xt, yt))
+    train(model, X, y, validation=(model, Xt, yt))
 

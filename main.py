@@ -40,18 +40,34 @@ Xt = Xt * (1 / 255)
 
 # Параметры:
 
-lr = 1       # значени на которое будет домножаться дельта на каждом шаге
-batch = 60   # кол-во изображений использованное для обучения на каждом шаге
+lr = 0.01     # значени на которое будет домножаться дельта на каждом шаге
+batch = 60    # кол-во изображений использованное для обучения на каждом шаге
 epochs = 100  # кол-во эпох. Если видно что прогресс есть, но нужно больше итераций 
 
+
+def convolution(X, W):
+    (filter_channels, filter_height, filter_width) = W.shape
+    (batch_size, in_channels, in_rows, in_cols) = X.shape
+    (out_channels, out_rows, out_cols) = (filter_channels, in_rows - 2, in_cols - 2)
+
+    res = np.zeros((batch_size, out_channels, out_rows, out_cols))
+ 
+    for och in range(0, out_channels):
+        for batch in range(0, batch_size):
+            for ich in range(0, in_channels):
+                res[batch][och] += signal.convolve2d(X[batch][ich], W[och], mode='valid')
+
+    return res
+
+
 class MnistConvModel:
-    def __init__(self, lr=0.1, batch=60):
+    def __init__(self, lr=0.1):
         self.lr = lr
-        self.batch = batch
         self.filters = 8
 
         self.W_conv = np.random.uniform(-0.05, 0.05, (self.filters, 3, 3))
         self.W_linear = np.random.uniform(-0.05, 0.05, (self.filters * 26 * 26, 10))
+        self.b_linear = np.zeros((10, ))
 
     def load(self, conv, linear):
         with open(conv, 'rb') as f:
@@ -63,7 +79,7 @@ class MnistConvModel:
     # Linear Layer
 
     def linear_forward(self, X):
-        return np.dot(X, self.W_linear)
+        return np.dot(X, self.W_linear) + self.b_linear
 
     def linear_backward(self, e):
         return np.dot(e, self.W_linear.T)
@@ -84,38 +100,32 @@ class MnistConvModel:
 
         return X_o
     
-    def relu_backward(self, s):
-        res = s.copy()
+    def relu_backward(self, e):
+        res = self.o_relu.copy()
         res[res > 0] = 1.0
 
-        return res
+        return e * res
 
     # Convolution Layer
 
     def convolution_forward(self, X):
-        (filter_channels, filter_height, filter_width) = self.W_conv.shape
-        (batch_size, in_channels, in_rows, in_cols) = X.shape
-        (out_channels, out_rows, out_cols) = (filter_channels, in_rows - 2, in_cols - 2)
+        return convolution(X, self.W_conv)
 
-        res = np.zeros((batch_size, out_channels, out_rows, out_cols))
- 
-        for batch in range(0, batch_size):
-            for och in range(0, out_channels):
-                for ich in range(0, in_channels):
-                    res[batch][och] += signal.convolve2d(X[batch][ich], self.W_conv[och], mode='valid')
-
-        return res
 
     def convolution_backward(self, e):
-        return # TODO
+        return e
 
 
     def forward(self, X):
+        self.X = X
+
         self.o_conv = self.convolution_forward(X)
         
-        self.o_relu = self.relu_forward(self.o_conv).reshape(len(X), -1)
+        self.o_relu = self.relu_forward(self.o_conv)
+
+        self.o_relu_flatten = self.o_relu.reshape(len(X), -1)
         
-        self.o_linear = self.linear_forward(self.o_relu)
+        self.o_linear = self.linear_forward(self.o_relu_flatten)
         
         self.o_sigmoid = self.sigmoid_forward(self.o_linear)
         
@@ -129,18 +139,32 @@ class MnistConvModel:
 
         self.e_relu = self.relu_backward(self.e_linear.reshape((-1, self.filters, 26, 26)))
         
-        self.e_conv = self.convolution_backward(self.e_relu)
+        # self.e_conv = self.convolution_backward(self.e_relu)
 
     def calc_gradients(self):
-        scaler = 1 / len(self.o_relu)
+        def conv(X, e):
+            (out_batch_size, out_channels, out_rows, out_cols) = e.shape
+            (batch_size, in_channels, in_rows, in_cols) = X.shape
+            (filters, w_rows, w_cols) = (out_channels, 3, 3)
 
-        self.dW_linear = np.dot(self.o_relu.T, self.e_sigmoid) * scaler
+            res = np.zeros((filters, w_rows, w_cols))
+        
+            for och in range(0, out_channels):
+                for batch in range(0, batch_size):
+                    for ich in range(0, in_channels):
+                        res[och] += signal.convolve2d(X[batch][ich], e[batch][och], mode='valid')
+
+            return res
+
+        scaler = 1 / len(self.X)
+
+        self.dW_linear = np.dot(self.o_relu_flatten.T, self.e_sigmoid) * scaler
         self.db_linear = np.mean(self.o_linear, axis=0) * scaler
-        self.dW_conv = # TODO 
+        self.dW_conv = conv(self.X, self.e_relu) * scaler
 
     def update(self):
         self.W_linear -= self.dW_linear * self.lr
-        self.db_linear -= self.db_linear * self.lr
+        # self.b_linear -= self.db_linear * self.lr
         self.W_conv -= self.dW_conv * self.lr
 
 def mse(o, y):
@@ -161,7 +185,7 @@ def train(model, X, y, epochs=100, batch_size=100, validation=None):
     np.put_along_axis(t, y.reshape((-1, 1)), 1.0, axis=1)
 
     for epoch in range(0, epochs):
-        print("Epoc ", epoch + 1)
+        print("Epoch ", epoch + 1)
 
         for index, (bX, bt) in enumerate(zip(np.split(X, batch_count), np.split(t, batch_count))):
             res = model.forward(bX)
@@ -171,15 +195,15 @@ def train(model, X, y, epochs=100, batch_size=100, validation=None):
             model.calc_gradients()
             model.update()
 
-            if index % 100:
+            if index % 100 == 0:
                 print("  Loss: ", mse(res, bt))
 
         if validation is not None:
             (val_X, val_y) = validation
-            print("  Accuracy: ", validate(val_X, val_y))
+            print("  Accuracy: ", validate(model, val_X, val_y))
 
 if __name__ == "__main__":
-    model = MnistConvModel()
+    model = MnistConvModel(lr=0.1)
     X = X.reshape((-1, 1, 28, 28))
     Xt = Xt.reshape((-1, 1, 28, 28))
 

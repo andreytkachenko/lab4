@@ -118,7 +118,7 @@ class MnistConvModel:
 
     def forward(self, X):
         self.X = X
-
+        
         self.o_conv = self.convolution_forward(X)
         
         self.o_relu = self.relu_forward(self.o_conv)
@@ -164,8 +164,8 @@ class MnistConvModel:
 
     def update(self):
         self.W_linear -= self.dW_linear * self.lr
-        # self.b_linear -= self.db_linear * self.lr
         self.W_conv -= self.dW_conv * self.lr
+
 
 def mse(o, y):
     return np.sum(np.square(o - y))
